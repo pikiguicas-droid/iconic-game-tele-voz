@@ -6,6 +6,7 @@ on:
       - main
     paths:
       - iconic-game-tele-voz.zip
+      - index.html
       - .github/workflows/publish-pages.yml
   workflow_dispatch:
 
@@ -33,6 +34,8 @@ jobs:
         uses: actions/configure-pages@v5
       - name: Extraer copia del juego
         run: unzip -q iconic-game-tele-voz.zip -d site
+      - name: Aplicar corrección de ruta para GitHub Pages
+        run: cp index.html site/index.html
       - name: Subir sitio estático
         uses: actions/upload-pages-artifact@v3
         with:
