@@ -53,11 +53,12 @@ jobs:
           echo '09b239888f633ef2f0b4e09736e3d9936acfd810bc65d53fad45261762c6511f  /tmp/vosk-model-small-es-0.42.zip' | sha256sum --check
           mkdir -p /tmp/vosk-es site/assets
           unzip -q /tmp/vosk-model-small-es-0.42.zip -d /tmp/vosk-es
-          model_dir="$(find /tmp/vosk-es -mindepth 1 -maxdepth 1 -type d | head -n 1)"
-          test -n "$model_dir"
-          test -s "$model_dir/am/final.mdl"
-          test -s "$model_dir/conf/mfcc.conf"
-          test -s "$model_dir/graph/words.txt"
+          model_file="$(find /tmp/vosk-es -type f -path '*/am/final.mdl' -print -quit)"
+          test -n "$model_file"
+          model_dir="${model_file%/am/final.mdl}"
+          test -s "$model_file"
+          test -n "$(find "$model_dir" -type f -path '*/conf/mfcc*.conf' -print -quit)"
+          test -n "$(find "$model_dir" -type f -path '*/graph/words.txt' -print -quit)"
           tar -czf site/assets/vosk-model-small-es-0.42.tar.gz -C "$model_dir" .
           printf '%s\n' 'Vosk Spanish small model vosk-model-small-es-0.42' 'Upstream: https://alphacephei.com/vosk/models' 'License: Apache-2.0' > site/assets/vosk-model-attribution.txt
           curl --fail --location --retry 3 --output site/assets/vosk-model-apache-2.0.txt https://www.apache.org/licenses/LICENSE-2.0.txt
