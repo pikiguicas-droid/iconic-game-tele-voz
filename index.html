@@ -4649,7 +4649,7 @@ var VTest={
 
 // ═══ MANDO DEL MOVIL ═══
 var Ctrl={
-  peer:null,conn:null,code:'',cid:'',name:'',av:'',joined:false,retrying:false,sent:false,ui:null,speech:null,voiceAllowed:false,voiceError:'',voiceStarting:false,voiceTimer:null,lastVoice:'',micPermissionChecked:false,
+  peer:null,conn:null,code:'',cid:'',name:'',av:'',joined:false,retrying:false,sent:false,ui:null,speech:null,voiceAllowed:false,voiceError:'',voiceStarting:false,voiceTimer:null,lastVoice:'',micPermissionChecked:false,voiceEngine:'speech',voiceResultTimer:null,voskModel:null,voskRecognizer:null,voskLoading:false,voskError:'',voskStream:null,voskContext:null,voskSource:null,voskProcessor:null,voskGain:null,voskRequest:false,lastVoskText:'',
   ls:function(k,v){try{if(v===undefined)return localStorage.getItem(k);localStorage.setItem(k,v)}catch(e){return null}},
   init:function(code){
     this.code=code;document.body.classList.add('ctrl');
@@ -4674,31 +4674,90 @@ var Ctrl={
   },
   prepareVoice:function(done){
     var self=this,C=window.SpeechRecognition||window.webkitSpeechRecognition;
-    if(!C){this.voiceError='Este navegador no ofrece reconocimiento de voz. Prueba otro navegador en el móvil; puedes seguir usando los botones.';done();return}
-    try{this.speech=new C();this.speech.lang='es-ES';this.speech.continuous=true;this.speech.interimResults=true;this.speech.maxAlternatives=10;
+    if(!C){this.speech=null;this.voiceEngine='vosk';this.voiceError='Este navegador no trae reconocimiento de voz. Prepararé una alternativa local en español.'}
+    try{if(C){this.speech=new C();this.speech.lang='es-ES';this.speech.continuous=true;this.speech.interimResults=true;this.speech.maxAlternatives=10;
       this.speech.onresult=function(e){
         if(!Ctrl.voiceAllowed||!Ctrl.joined||!Ctrl.voiceTurn())return;
         for(var i=e.resultIndex;i<e.results.length;i++){var r=e.results[i],alts=[];for(var k=0;k<r.length&&k<10;k++){var t=String(r[k].transcript||'').trim();if(t&&alts.indexOf(t)<0)alts.push(t)}
-          if(!alts.length)continue;var stamp=i+':'+alts.join('|')+':'+(r.isFinal?'F':'I');if(stamp===Ctrl.lastVoice)continue;Ctrl.lastVoice=stamp;Ctrl.send({t:'voice',alts:alts,final:!!r.isFinal});var st=$('cVoiceStatus');if(st)st.textContent='🎤 '+alts[0];
+          if(!alts.length)continue;clearTimeout(Ctrl.voiceResultTimer);Ctrl.voiceSeenResult=true;var stamp=i+':'+alts.join('|')+':'+(r.isFinal?'F':'I');if(stamp===Ctrl.lastVoice)continue;Ctrl.lastVoice=stamp;Ctrl.send({t:'voice',alts:alts,final:!!r.isFinal});var st=$('cVoiceStatus');if(st)st.textContent='🎤 '+alts[0];
         }
       };
-      this.speech.onerror=function(e){var er=e&&e.error;if(er==='not-allowed'||er==='service-not-allowed'){Ctrl.voiceAllowed=false;Ctrl.voiceError='El navegador bloqueó el micrófono. Revisa el permiso del sitio y pulsa ACTIVAR MICRÓFONO.'}else if(er==='network'){Ctrl.voiceError='El reconocimiento necesita conexión a Internet.'}else if(er==='no-speech'){Ctrl.voiceError='No detecté voz. Pulsa ACTIVAR MICRÓFONO y prueba de nuevo.'}else{Ctrl.voiceError='Se interrumpió la escucha. Pulsa ACTIVAR MICRÓFONO para reintentar.'}var st=$('cVoiceStatus');if(st)st.textContent=Ctrl.voiceError};
+      this.speech.onerror=function(e){var er=e&&e.error;if(er==='not-allowed'){Ctrl.voiceAllowed=false;Ctrl.voiceError='El navegador bloqueó el micrófono. Revisa el permiso del sitio.';var st=$('cVoiceStatus');if(st)st.textContent=Ctrl.voiceError}else if(er==='service-not-allowed'||er==='network'||er==='audio-capture'||er==='language-not-supported'){Ctrl.fallbackToVosk('El reconocimiento del navegador no está disponible.');}};
       this.speech.onend=function(){Ctrl.voiceStarting=false;if(Ctrl.voiceAllowed&&Ctrl.voiceTurn())Ctrl.voiceTimer=setTimeout(function(){Ctrl.startVoice()},450)};
-    }catch(e){this.speech=null;this.voiceError='No se pudo preparar el reconocimiento de voz.';done();return}
+    }}catch(e){this.speech=null;this.voiceEngine='vosk';this.voiceError='No se pudo preparar la voz del navegador. Prepararé la alternativa local.'}
     // Solicita el permiso una sola vez al entrar. Después, el botón por turno
     // solo inicia SpeechRecognition desde un toque, sin volver a pedir permiso.
     if(this.micPermissionChecked){done();return}
     this.micPermissionChecked=true;
     if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){this.voiceAllowed=false;this.voiceError='No se pudo comprobar el permiso del micrófono. Revisa los permisos del navegador.';done();return}
-    navigator.mediaDevices.getUserMedia({audio:true}).then(function(stream){try{stream.getTracks().forEach(function(t){t.stop()})}catch(e){}self.voiceAllowed=true;self.voiceError='';done()},function(){self.voiceAllowed=false;self.voiceError='Permiso no concedido. Autoriza el micrófono para esta web en los ajustes del navegador.';done()});
+    navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true,channelCount:1}}).then(function(stream){try{stream.getTracks().forEach(function(t){t.stop()})}catch(e){}self.voiceAllowed=true;if(self.voiceEngine==='speech')self.voiceError='';done();self.loadVosk()},function(){self.voiceAllowed=false;self.voiceError='Permiso no concedido. Autoriza el micrófono para esta web en los ajustes del navegador.';done()});
   },
   voiceTurn:function(){return !!(this.ui&&this.ui.k==='turn'||this.ui&&this.ui.k==='opts')},
   startVoice:function(){
-    if(!this.speech||!this.voiceTurn()||this.voiceStarting)return;
-    try{this.voiceStarting=true;this.lastVoice='';this.speech.start();this.voiceAllowed=true;this.voiceError='';var st=$('cVoiceStatus');if(st)st.textContent='🎙 Te escucho… di la respuesta en voz alta.'}catch(e){this.voiceStarting=false;this.voiceAllowed=false;this.voiceError='No se pudo iniciar la escucha. Comprueba el permiso y vuelve a pulsar ACTIVAR MICRÓFONO.';var status=$('cVoiceStatus');if(status)status.textContent=this.voiceError}
+    if(!this.voiceTurn()||this.voiceStarting)return;
+    if(this.voiceEngine==='vosk'){this.voskRequest=true;this.startVosk();return}
+    if(!this.speech)return;
+    try{this.voiceStarting=true;this.lastVoice='';this.voiceSeenResult=false;this.speech.start();this.voiceAllowed=true;this.voiceError='';var st=$('cVoiceStatus');if(st)st.textContent='🎙 Te escucho… di la respuesta en voz alta.';clearTimeout(this.voiceResultTimer);this.voiceResultTimer=setTimeout(function(){if(Ctrl.voiceTurn()&&!Ctrl.voiceSeenResult)Ctrl.fallbackToVosk('No llegó ninguna transcripción del navegador.')},4500)}catch(e){this.voiceStarting=false;this.fallbackToVosk('No se pudo iniciar la voz del navegador.')}
   },
-  stopVoice:function(){clearTimeout(this.voiceTimer);if(this.speech&&this.voiceStarting){try{this.speech.stop()}catch(e){}this.voiceStarting=false}},
-  retryVoice:function(){if(!this.speech){var st=$('cVoiceStatus');if(st)st.textContent=this.voiceError||'Este navegador no admite reconocimiento de voz.';return}this.voiceError='';this.startVoice()},
+  stopVoice:function(){clearTimeout(this.voiceTimer);clearTimeout(this.voiceResultTimer);if(this.speech&&this.voiceStarting&&this.voiceEngine==='speech'){try{this.speech.stop()}catch(e){}this.voiceStarting=false}if(this.voiceEngine==='vosk')this.stopVosk()},
+  retryVoice:function(){this.voiceError='';this.voskRequest=true;this.startVoice()},
+  fallbackToVosk:function(reason){
+    if(this.voiceEngine==='vosk')return;
+    this.voiceEngine='vosk';this.voiceStarting=false;clearTimeout(this.voiceResultTimer);this.voskRequest=true;
+    if(this.speech){try{this.speech.stop()}catch(e){}}
+    this.voiceError=(reason||'La voz del navegador no respondió')+' Cargando voz local en español (34 MB la primera vez).';
+    var st=$('cVoiceStatus');if(st)st.textContent=this.voiceError;
+    this.loadVosk();
+  },
+  loadVosk:function(){
+    if(this.voskModel){if(this.voskRequest&&this.voiceTurn())this.startVosk();return}
+    if(this.voskLoading)return;
+    this.voskLoading=true;this.voskError='';var self=this;
+    function create(){
+      if(!window.Vosk){self.voskLoading=false;self.voskError='No pude cargar el motor local de voz. Comprueba la conexión e inténtalo otra vez.';var st=$('cVoiceStatus');if(st&&self.voiceEngine==='vosk')st.textContent=self.voskError;return}
+      var modelUrl=new URL('assets/vosk-model-small-es-0.42.tar.gz',document.baseURI).href;
+      window.Vosk.createModel(modelUrl).then(function(model){
+        self.voskModel=model;self.voskLoading=false;self.voiceError='Voz local lista.';
+        if(self.voskRequest&&self.voiceTurn())self.startVosk();else if(self.voiceEngine==='vosk'){var status=$('cVoiceStatus');if(status)status.textContent='Voz local lista. Pulsa ACTIVAR MICRÓFONO para hablar.'}
+      }).catch(function(err){self.voskLoading=false;self.voskError='No se pudo preparar la voz local. Comprueba la conexión e inténtalo otra vez.';var status=$('cVoiceStatus');if(status&&self.voiceEngine==='vosk')status.textContent=self.voskError});
+    }
+    if(window.Vosk){create();return}
+    var tag=document.createElement('script');tag.src='https://cdn.jsdelivr.net/npm/vosk-browser@0.0.8/dist/vosk.js';tag.async=true;
+    tag.onload=create;tag.onerror=function(){self.voskLoading=false;self.voskError='No se pudo cargar el motor local de voz. Comprueba la conexión.';var status=$('cVoiceStatus');if(status&&self.voiceEngine==='vosk')status.textContent=self.voskError};document.head.appendChild(tag);
+    var st=$('cVoiceStatus');if(st&&this.voiceEngine==='vosk')st.textContent=this.voiceError||'Preparando reconocimiento local…';
+  },
+  startVosk:function(){
+    if(!this.voskRequest||!this.voiceTurn()||this.voiceStarting)return;
+    if(!this.voskModel){this.loadVosk();var st=$('cVoiceStatus');if(st)st.textContent=this.voskError||this.voiceError||'Preparando voz local en español…';return}
+    if(this.voskStream)return;
+    var self=this;this.voiceStarting=true;this.voskRequest=false;this.lastVoskText='';
+    if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){this.voiceStarting=false;this.voiceError='Este navegador no permite usar el micrófono. Abre el juego con su enlace HTTPS.';var status=$('cVoiceStatus');if(status)status.textContent=this.voiceError;return}
+    navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true,channelCount:1}}).then(function(stream){
+      if(!self.voiceTurn()){stream.getTracks().forEach(function(t){t.stop()});self.voiceStarting=false;return}
+      self.voskStream=stream;self.voskContext=new (window.AudioContext||window.webkitAudioContext)();
+      return self.voskContext.resume().then(function(){
+        var rate=self.voskContext.sampleRate;self.voskRecognizer=new self.voskModel.KaldiRecognizer(rate);
+        function heard(text,final){text=String(text||'').trim();if(!text||!Ctrl.joined||!Ctrl.voiceTurn())return;var stamp=text.toLowerCase()+':'+(final?'f':'i');if(stamp===Ctrl.lastVoskText)return;Ctrl.lastVoskText=stamp;Ctrl.send({t:'voice',alts:[text],final:!!final});var el=$('cVoiceStatus');if(el)el.textContent='🎤 '+text}
+        self.voskRecognizer.on('partialresult',function(m){heard(m&&m.result&&m.result.partial,false)});
+        self.voskRecognizer.on('result',function(m){heard(m&&m.result&&m.result.text,true)});
+        self.voskRecognizer.on('error',function(){self.voiceError='La voz local se interrumpió. Pulsa ACTIVAR MICRÓFONO para reintentar.';var el=$('cVoiceStatus');if(el)el.textContent=self.voiceError;self.voiceStarting=false});
+        self.voskSource=self.voskContext.createMediaStreamSource(stream);self.voskProcessor=self.voskContext.createScriptProcessor(4096,1,1);self.voskGain=self.voskContext.createGain();self.voskGain.gain.value=0;
+        self.voskProcessor.onaudioprocess=function(e){if(self.voskRecognizer&&self.voiceTurn()){try{self.voskRecognizer.acceptWaveform(e.inputBuffer)}catch(err){}}};
+        self.voskSource.connect(self.voskProcessor);self.voskProcessor.connect(self.voskGain);self.voskGain.connect(self.voskContext.destination);
+        self.voiceAllowed=true;self.voiceStarting=true;var el=$('cVoiceStatus');if(el)el.textContent='🎙 Te escucho… di la respuesta en voz alta.';
+      });
+    }).catch(function(){self.voiceStarting=false;self.voiceError='No se pudo activar el micrófono. Revisa el permiso del sitio e inténtalo otra vez.';var el=$('cVoiceStatus');if(el)el.textContent=self.voiceError});
+  },
+  stopVosk:function(){
+    this.voskRequest=false;this.voiceStarting=false;
+    try{if(this.voskProcessor){this.voskProcessor.onaudioprocess=null;this.voskProcessor.disconnect()}}catch(e){}
+    try{if(this.voskSource)this.voskSource.disconnect()}catch(e){}
+    try{if(this.voskGain)this.voskGain.disconnect()}catch(e){}
+    try{if(this.voskRecognizer)this.voskRecognizer.remove()}catch(e){}
+    try{if(this.voskStream)this.voskStream.getTracks().forEach(function(t){t.stop()})}catch(e){}
+    try{if(this.voskContext&&this.voskContext.state==='running')this.voskContext.suspend()}catch(e){}
+    this.voskProcessor=null;this.voskSource=null;this.voskGain=null;this.voskRecognizer=null;this.voskStream=null;
+  },
   msg:function(emoji,title,sub,retry){
     var h='<div class="c-emoji">'+emoji+'</div><div class="c-title">'+esc(title)+'</div><div class="c-sub">'+esc(sub||'')+'</div>';
     if(retry)h+='<button class="c-btn" style="background:var(--blue)" onclick="Ctrl.join()">REINTENTAR</button>';
@@ -4753,15 +4812,16 @@ var Ctrl={
       h='<div class="c-emoji">🎤</div><div class="c-title">¡TU TURNO!</div><div class="c-sub">'+esc(u.cat||'')+'. Di el nombre en voz alta.</div>';
       if(u.secs)h+='<div class="c-bar"><i id="cBar"></i></div>';
       h+='<div class="c-sub" id="cVoiceStatus">'+esc(this.voiceError||(this.voiceAllowed?'Permiso concedido. Pulsa ACTIVAR MICRÓFONO para escuchar.':'Pulsa ACTIVAR MICRÓFONO y di el nombre en voz alta.'))+'</div>';
-      if(this.speech)h+='<button class="c-btn" style="background:var(--cyan);color:#071327" onclick="Ctrl.retryVoice()">🎙 ACTIVAR MICRÓFONO</button>';
+      if(this.speech||this.voiceEngine==='vosk')h+='<button class="c-btn" style="background:var(--cyan);color:#071327" onclick="Ctrl.retryVoice()">🎙 ACTIVAR MICRÓFONO</button>';
       h+='<button class="c-btn" style="background:var(--green);color:#04210f" onpointerdown="Ctrl.judge(true)">✅ ¡CORRECTO!</button><button class="c-btn" style="background:rgba(255,255,255,.12)" onpointerdown="Ctrl.judge(false)">⏭ PASAR</button>';
     }else if(u.k==='opts'){
       var sh=['▲','◆','●','■'];
       h='<div class="c-sub" id="cVoiceStatus">'+esc(this.voiceError||(this.voiceAllowed?'Permiso concedido. Pulsa ACTIVAR MICRÓFONO para escuchar.':'Pulsa ACTIVAR MICRÓFONO y di la opción correcta.'))+'</div>';
-      if(this.speech)h+='<button class="c-btn" style="background:var(--cyan);color:#071327" onclick="Ctrl.retryVoice()">🎙 ACTIVAR MICRÓFONO</button>';
+      if(this.speech||this.voiceEngine==='vosk')h+='<button class="c-btn" style="background:var(--cyan);color:#071327" onclick="Ctrl.retryVoice()">🎙 ACTIVAR MICRÓFONO</button>';
       h+='<div class="c-grid">'+(u.opts||[]).map(function(o,ix){return '<button class="c-opt c'+ix+'" onpointerdown="Ctrl.opt('+ix+')"><span class="sh">'+sh[ix]+'</span><span>'+esc(o)+'</span></button>'}).join('')+'</div><div class="c-bar"><i id="cBar"></i></div>';
     }else{h='<div class="c-title">...</div>'}
     this.body(h);
+    if(this.voiceTurn()&&this.voiceEngine==='vosk'&&this.voiceAllowed&&this.voskModel){var self=this;this.voskRequest=true;setTimeout(function(){self.startVosk()},120)}
     var bar=$('cBar');
     if(bar&&u.secs){bar.style.width='100%';bar.style.transition='none';requestAnimationFrame(function(){requestAnimationFrame(function(){bar.style.transition='width '+u.secs+'s linear';bar.style.width='0%'})})}
     if(u.k==='buzz'||u.k==='turn'||u.k==='opts')this.vib(40);
