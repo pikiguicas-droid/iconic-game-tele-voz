@@ -33,8 +33,30 @@ jobs:
       - name: Preparar GitHub Pages
         uses: actions/configure-pages@v5
       - name: Extraer copia del juego
-        run: unzip -q iconic-game-tele-voz.zip -d site
-      - name: Aplicar corrección de ruta para GitHub Pages
+        run: |
+          unzip -q iconic-game-tele-voz.zip -d site
+          if [ -d site/iconic-game-tele-voz ]; then
+            cp -a site/iconic-game-tele-voz/. site/
+            rm -rf site/iconic-game-tele-voz
+          fi
+      - name: Cachear modelo español Vosk
+        id: vosk-cache
+        uses: actions/cache@v4
+        with:
+          path: /tmp/vosk-model-small-es-0.42.zip
+          key: vosk-small-es-0.42-09b239888f633ef2f0b4e09736e3d9936acfd810bc65d53fad45261762c6511f
+      - name: Descargar modelo español Vosk
+        if: steps.vosk-cache.outputs.cache-hit != 'true'
+        run: curl --fail --location --retry 3 --output /tmp/vosk-model-small-es-0.42.zip https://alphacephei.com/vosk/models/vosk-model-small-es-0.42.zip
+      - name: Comprobar e instalar modelo de voz local
+        run: |
+          echo '09b239888f633ef2f0b4e09736e3d9936acfd810bc65d53fad45261762c6511f  /tmp/vosk-model-small-es-0.42.zip' | sha256sum --check
+          mkdir -p /tmp/vosk-es site/assets
+          unzip -q /tmp/vosk-model-small-es-0.42.zip -d /tmp/vosk-es
+          model_dir="$(find /tmp/vosk-es -mindepth 1 -maxdepth 1 -type d | head -n 1)"
+          test -n "$model_dir"
+          tar -czf site/assets/vosk-model-small-es-0.42.tar.gz -C "$model_dir" .
+      - name: Aplicar corrección de ruta y reconocimiento móvil
         run: cp index.html site/index.html
       - name: Subir sitio estático
         uses: actions/upload-pages-artifact@v3
