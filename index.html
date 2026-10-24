@@ -2157,7 +2157,7 @@ var MicPro={
     var eng=(this.cfg.local&&this.localOk)?'En el equipo (sin internet)':'Nube de Google (la más fiable)';
     var bo=this.cfg.off?'No admitido en este Chrome':(this.cfg.boost?(this.live()?'Activo':'Se activa al hablar'):'Apagado');
     var st=SR.denied?'Bloqueado: toca para reintentar':(SR.active?(SR.running?'Escuchando':'Arrancando…'):'Apagado');
-    s.innerHTML='<b>Estado:</b> '+st+'<br><b>Motor:</b> '+eng+'<br><b>Refuerzo de voz:</b> '+bo+'<br><b>Frases de ayuda:</b> desactivadas por compatibilidad con Chrome;
+    s.innerHTML='<b>Estado:</b> '+st+'<br><b>Motor:</b> '+eng+'<br><b>Refuerzo de voz:</b> '+bo+'<br><b>Frases de ayuda:</b> desactivadas por compatibilidad con Chrome';
     var b=$('mpBoost');if(b)b.textContent=(this.cfg.boost&&!this.cfg.off)?'Refuerzo: sí':'Refuerzo: no';
     var l=$('mpLocal');if(l)l.textContent=(this.cfg.local&&this.localOk)?'Voz en el equipo: sí':(this.installing?'Descargando…':'Voz en el equipo: no');
   },
