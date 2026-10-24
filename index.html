@@ -4679,7 +4679,7 @@ var Ctrl={
       this.speech.onresult=function(e){
         if(!Ctrl.voiceAllowed||!Ctrl.joined||!Ctrl.voiceTurn())return;
         for(var i=e.resultIndex;i<e.results.length;i++){var r=e.results[i],alts=[];for(var k=0;k<r.length&&k<10;k++){var t=String(r[k].transcript||'').trim();if(t&&alts.indexOf(t)<0)alts.push(t)}
-          if(!alts.length)continue;clearTimeout(Ctrl.voiceResultTimer);Ctrl.voiceSeenResult=true;var stamp=i+':'+alts.join('|')+':'+(r.isFinal?'F':'I');if(stamp===Ctrl.lastVoice)continue;Ctrl.lastVoice=stamp;Ctrl.send({t:'voice',alts:alts,final:!!r.isFinal});var st=$('cVoiceStatus');if(st)st.textContent='🎤 '+alts[0];
+          if(!alts.length)continue;clearTimeout(Ctrl.voiceResultTimer);Ctrl.voiceResultTimer=null;Ctrl.voiceSeenResult=true;var stamp=i+':'+alts.join('|')+':'+(r.isFinal?'F':'I');if(stamp===Ctrl.lastVoice)continue;Ctrl.lastVoice=stamp;Ctrl.send({t:'voice',alts:alts,final:!!r.isFinal});var st=$('cVoiceStatus');if(st)st.textContent='🎤 '+alts[0];
         }
       };
       this.speech.onerror=function(e){var er=e&&e.error;if(er==='not-allowed'){Ctrl.voiceAllowed=false;Ctrl.voiceError='El navegador bloqueó el micrófono. Revisa el permiso del sitio.';var st=$('cVoiceStatus');if(st)st.textContent=Ctrl.voiceError}else if(er==='service-not-allowed'||er==='network'||er==='audio-capture'||er==='language-not-supported'){Ctrl.fallbackToVosk('El reconocimiento del navegador no está disponible.');}};
@@ -4697,13 +4697,13 @@ var Ctrl={
     if(!this.voiceTurn()||this.voiceStarting)return;
     if(this.voiceEngine==='vosk'){this.voskRequest=true;this.startVosk();return}
     if(!this.speech)return;
-    try{this.voiceStarting=true;this.lastVoice='';this.voiceSeenResult=false;this.speech.start();this.voiceAllowed=true;this.voiceError='';var st=$('cVoiceStatus');if(st)st.textContent='🎙 Te escucho… di la respuesta en voz alta.';clearTimeout(this.voiceResultTimer);this.voiceResultTimer=setTimeout(function(){if(Ctrl.voiceTurn()&&!Ctrl.voiceSeenResult)Ctrl.fallbackToVosk('No llegó ninguna transcripción del navegador.')},4500)}catch(e){this.voiceStarting=false;this.fallbackToVosk('No se pudo iniciar la voz del navegador.')}
+    try{this.voiceStarting=true;this.lastVoice='';this.voiceSeenResult=false;this.speech.start();this.voiceAllowed=true;this.voiceError='';var st=$('cVoiceStatus');if(st)st.textContent='🎙 Te escucho… di la respuesta en voz alta.';if(!this.voiceResultTimer)this.voiceResultTimer=setTimeout(function(){Ctrl.voiceResultTimer=null;if(Ctrl.voiceTurn()&&!Ctrl.voiceSeenResult)Ctrl.fallbackToVosk('No llegó ninguna transcripción del navegador.')},4500)}catch(e){this.voiceStarting=false;this.fallbackToVosk('No se pudo iniciar la voz del navegador.')}
   },
-  stopVoice:function(){clearTimeout(this.voiceTimer);clearTimeout(this.voiceResultTimer);if(this.speech&&this.voiceStarting&&this.voiceEngine==='speech'){try{this.speech.stop()}catch(e){}this.voiceStarting=false}if(this.voiceEngine==='vosk')this.stopVosk()},
+  stopVoice:function(){clearTimeout(this.voiceTimer);clearTimeout(this.voiceResultTimer);this.voiceResultTimer=null;if(this.speech&&this.voiceStarting&&this.voiceEngine==='speech'){try{this.speech.stop()}catch(e){}this.voiceStarting=false}if(this.voiceEngine==='vosk')this.stopVosk()},
   retryVoice:function(){this.voiceError='';this.voskRequest=true;this.startVoice()},
   fallbackToVosk:function(reason){
     if(this.voiceEngine==='vosk')return;
-    this.voiceEngine='vosk';this.voiceStarting=false;clearTimeout(this.voiceResultTimer);this.voskRequest=true;
+    this.voiceEngine='vosk';this.voiceStarting=false;clearTimeout(this.voiceResultTimer);this.voiceResultTimer=null;this.voskRequest=true;
     if(this.speech){try{this.speech.stop()}catch(e){}}
     this.voiceError=(reason||'La voz del navegador no respondió')+' Cargando voz local en español (34 MB la primera vez).';
     var st=$('cVoiceStatus');if(st)st.textContent=this.voiceError;
@@ -4722,7 +4722,7 @@ var Ctrl={
       }).catch(function(err){self.voskLoading=false;self.voskError='No se pudo preparar la voz local. Comprueba la conexión e inténtalo otra vez.';var status=$('cVoiceStatus');if(status&&self.voiceEngine==='vosk')status.textContent=self.voskError});
     }
     if(window.Vosk){create();return}
-    var tag=document.createElement('script');tag.src='https://cdn.jsdelivr.net/npm/vosk-browser@0.0.8/dist/vosk.js';tag.async=true;
+    var tag=document.createElement('script');tag.src=new URL('assets/vosk-browser-0.0.8.js',document.baseURI).href;tag.async=true;
     tag.onload=create;tag.onerror=function(){self.voskLoading=false;self.voskError='No se pudo cargar el motor local de voz. Comprueba la conexión.';var status=$('cVoiceStatus');if(status&&self.voiceEngine==='vosk')status.textContent=self.voskError};document.head.appendChild(tag);
     var st=$('cVoiceStatus');if(st&&this.voiceEngine==='vosk')st.textContent=this.voiceError||'Preparando reconocimiento local…';
   },
