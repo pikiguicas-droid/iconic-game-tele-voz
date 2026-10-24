@@ -67,6 +67,8 @@ jobs:
           tar -czf site/assets/vosk-model-small-es-0.42.tar.gz -C "$model_dir" .
           printf '%s\n' 'Vosk Spanish small model vosk-model-small-es-0.42' 'Upstream: https://alphacephei.com/vosk/models' 'License: Apache-2.0' > site/assets/vosk-model-attribution.txt
           curl --fail --location --retry 3 --output site/assets/vosk-model-apache-2.0.txt https://www.apache.org/licenses/LICENSE-2.0.txt
+          curl --fail --location --retry 3 --output site/assets/vosk-browser-0.0.8.js https://cdn.jsdelivr.net/npm/vosk-browser@0.0.8/dist/vosk.js
+          test -s site/assets/vosk-browser-0.0.8.js
       - name: Aplicar corrección de ruta y reconocimiento móvil
         run: cp index.html site/index.html
       - name: Subir sitio estático
