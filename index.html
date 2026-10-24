@@ -4649,7 +4649,7 @@ var VTest={
 
 // ═══ MANDO DEL MOVIL ═══
 var Ctrl={
-  peer:null,conn:null,code:'',cid:'',name:'',av:'',joined:false,retrying:false,sent:false,ui:null,speech:null,voiceAllowed:false,voiceError:'',voiceStarting:false,voiceTimer:null,lastVoice:'',
+  peer:null,conn:null,code:'',cid:'',name:'',av:'',joined:false,retrying:false,sent:false,ui:null,speech:null,voiceAllowed:false,voiceError:'',voiceStarting:false,voiceTimer:null,lastVoice:'',micPermissionChecked:false,
   ls:function(k,v){try{if(v===undefined)return localStorage.getItem(k);localStorage.setItem(k,v)}catch(e){return null}},
   init:function(code){
     this.code=code;document.body.classList.add('ctrl');
@@ -4685,9 +4685,12 @@ var Ctrl={
       this.speech.onerror=function(e){var er=e&&e.error;if(er==='not-allowed'||er==='service-not-allowed'){Ctrl.voiceAllowed=false;Ctrl.voiceError='El navegador bloqueó el micrófono. Revisa el permiso del sitio y pulsa ACTIVAR MICRÓFONO.'}else if(er==='network'){Ctrl.voiceError='El reconocimiento necesita conexión a Internet.'}else if(er==='no-speech'){Ctrl.voiceError='No detecté voz. Pulsa ACTIVAR MICRÓFONO y prueba de nuevo.'}else{Ctrl.voiceError='Se interrumpió la escucha. Pulsa ACTIVAR MICRÓFONO para reintentar.'}var st=$('cVoiceStatus');if(st)st.textContent=Ctrl.voiceError};
       this.speech.onend=function(){Ctrl.voiceStarting=false;if(Ctrl.voiceAllowed&&Ctrl.voiceTurn())Ctrl.voiceTimer=setTimeout(function(){Ctrl.startVoice()},450)};
     }catch(e){this.speech=null;this.voiceError='No se pudo preparar el reconocimiento de voz.';done();return}
-    // No pedimos el permiso aquí: SpeechRecognition debe arrancar desde el toque
-    // explícito del jugador en la pantalla de turno para móviles que lo exigen.
-    this.voiceAllowed=false;done();
+    // Solicita el permiso una sola vez al entrar. Después, el botón por turno
+    // solo inicia SpeechRecognition desde un toque, sin volver a pedir permiso.
+    if(this.micPermissionChecked){done();return}
+    this.micPermissionChecked=true;
+    if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){this.voiceAllowed=false;this.voiceError='No se pudo comprobar el permiso del micrófono. Revisa los permisos del navegador.';done();return}
+    navigator.mediaDevices.getUserMedia({audio:true}).then(function(stream){try{stream.getTracks().forEach(function(t){t.stop()})}catch(e){}self.voiceAllowed=true;self.voiceError='';done()},function(){self.voiceAllowed=false;self.voiceError='Permiso no concedido. Autoriza el micrófono para esta web en los ajustes del navegador.';done()});
   },
   voiceTurn:function(){return !!(this.ui&&this.ui.k==='turn'||this.ui&&this.ui.k==='opts')},
   startVoice:function(){
@@ -4749,12 +4752,12 @@ var Ctrl={
     }else if(u.k==='turn'){
       h='<div class="c-emoji">🎤</div><div class="c-title">¡TU TURNO!</div><div class="c-sub">'+esc(u.cat||'')+'. Di el nombre en voz alta.</div>';
       if(u.secs)h+='<div class="c-bar"><i id="cBar"></i></div>';
-      h+='<div class="c-sub" id="cVoiceStatus">'+esc(this.voiceError||'Pulsa ACTIVAR MICRÓFONO y di el nombre en voz alta.')+'</div>';
+      h+='<div class="c-sub" id="cVoiceStatus">'+esc(this.voiceError||(this.voiceAllowed?'Permiso concedido. Pulsa ACTIVAR MICRÓFONO para escuchar.':'Pulsa ACTIVAR MICRÓFONO y di el nombre en voz alta.'))+'</div>';
       if(this.speech)h+='<button class="c-btn" style="background:var(--cyan);color:#071327" onclick="Ctrl.retryVoice()">🎙 ACTIVAR MICRÓFONO</button>';
       h+='<button class="c-btn" style="background:var(--green);color:#04210f" onpointerdown="Ctrl.judge(true)">✅ ¡CORRECTO!</button><button class="c-btn" style="background:rgba(255,255,255,.12)" onpointerdown="Ctrl.judge(false)">⏭ PASAR</button>';
     }else if(u.k==='opts'){
       var sh=['▲','◆','●','■'];
-      h='<div class="c-sub" id="cVoiceStatus">'+esc(this.voiceError||'Pulsa ACTIVAR MICRÓFONO y di la opción correcta.')+'</div>';
+      h='<div class="c-sub" id="cVoiceStatus">'+esc(this.voiceError||(this.voiceAllowed?'Permiso concedido. Pulsa ACTIVAR MICRÓFONO para escuchar.':'Pulsa ACTIVAR MICRÓFONO y di la opción correcta.'))+'</div>';
       if(this.speech)h+='<button class="c-btn" style="background:var(--cyan);color:#071327" onclick="Ctrl.retryVoice()">🎙 ACTIVAR MICRÓFONO</button>';
       h+='<div class="c-grid">'+(u.opts||[]).map(function(o,ix){return '<button class="c-opt c'+ix+'" onpointerdown="Ctrl.opt('+ix+')"><span class="sh">'+sh[ix]+'</span><span>'+esc(o)+'</span></button>'}).join('')+'</div><div class="c-bar"><i id="cBar"></i></div>';
     }else{h='<div class="c-title">...</div>'}
