@@ -2665,7 +2665,7 @@ var G={
   fromPlayer:function(p,m){
     var md=this.mode();if(!md)return;
     if(m.t==='judge'){var a=md.answerer&&md.answerer();if(a===p&&this.phase==='play')this.judge(!!m.ok,'movil');return}
-    if(m.t==='voice'){if(this.phase==='play'&&!this.paused&&!this.busy&&Array.isArray(m.alts))this.onVoice(m.alts.slice(0,10),!!m.final,p);return}
+    if(m.t==='voice'){var alts=Array.isArray(m.alts)?m.alts.slice(0,10):[],heard=String(alts[0]||'').slice(0,100),active=this.phase==='play'&&!this.paused&&!this.busy;if(heard){var heardEl=$('heard');if(heardEl)heardEl.textContent='📱 '+p.name+': '+heard}Net.send(p,{t:'voice_ack',id:m.id||0,text:heard,active:active});if(active&&alts.length)this.onVoice(alts,!!m.final,p);return}
     if(md.phone)md.phone(p,m);
   },
 
@@ -4649,7 +4649,7 @@ var VTest={
 
 // ═══ MANDO DEL MOVIL ═══
 var Ctrl={
-  peer:null,conn:null,code:'',cid:'',name:'',av:'',joined:false,retrying:false,sent:false,ui:null,speech:null,voiceAllowed:false,voiceError:'',voiceStarting:false,voiceTimer:null,lastVoice:'',micPermissionChecked:false,voiceEngine:'speech',voiceResultTimer:null,voskModel:null,voskRecognizer:null,voskLoading:false,voskError:'',voskStream:null,voskContext:null,voskSource:null,voskProcessor:null,voskGain:null,voskRequest:false,lastVoskText:'',
+  peer:null,conn:null,code:'',cid:'',name:'',av:'',joined:false,retrying:false,sent:false,ui:null,speech:null,voiceAllowed:false,voiceError:'',voiceStarting:false,voiceTimer:null,lastVoice:'',micPermissionChecked:false,voiceEngine:'speech',voiceResultTimer:null,voskModel:null,voskRecognizer:null,voskLoading:false,voskError:'',voskStream:null,voskContext:null,voskSource:null,voskProcessor:null,voskGain:null,voskRequest:false,lastVoskText:'',voiceSeq:0,pendingVoiceSeq:0,voiceAckTimer:null,
   ls:function(k,v){try{if(v===undefined)return localStorage.getItem(k);localStorage.setItem(k,v)}catch(e){return null}},
   init:function(code){
     this.code=code;document.body.classList.add('ctrl');
@@ -4679,7 +4679,7 @@ var Ctrl={
       this.speech.onresult=function(e){
         if(!Ctrl.voiceAllowed||!Ctrl.joined||!Ctrl.voiceTurn())return;
         for(var i=e.resultIndex;i<e.results.length;i++){var r=e.results[i],alts=[];for(var k=0;k<r.length&&k<10;k++){var t=String(r[k].transcript||'').trim();if(t&&alts.indexOf(t)<0)alts.push(t)}
-          if(!alts.length)continue;clearTimeout(Ctrl.voiceResultTimer);Ctrl.voiceResultTimer=null;Ctrl.voiceSeenResult=true;var stamp=i+':'+alts.join('|')+':'+(r.isFinal?'F':'I');if(stamp===Ctrl.lastVoice)continue;Ctrl.lastVoice=stamp;Ctrl.send({t:'voice',alts:alts,final:!!r.isFinal});var st=$('cVoiceStatus');if(st)st.textContent='🎤 '+alts[0];
+          if(!alts.length)continue;clearTimeout(Ctrl.voiceResultTimer);Ctrl.voiceResultTimer=null;Ctrl.voiceSeenResult=true;var stamp=i+':'+alts.join('|')+':'+(r.isFinal?'F':'I');if(stamp===Ctrl.lastVoice)continue;Ctrl.lastVoice=stamp;Ctrl.sendVoice(alts,!!r.isFinal);
         }
       };
       this.speech.onerror=function(e){var er=e&&e.error;if(er==='not-allowed'){Ctrl.voiceAllowed=false;Ctrl.voiceError='El navegador bloqueó el micrófono. Revisa el permiso del sitio.';var st=$('cVoiceStatus');if(st)st.textContent=Ctrl.voiceError}else if(er==='service-not-allowed'||er==='network'||er==='audio-capture'||er==='language-not-supported'){Ctrl.fallbackToVosk('El reconocimiento del navegador no está disponible.');}};
@@ -4693,6 +4693,7 @@ var Ctrl={
     navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true,channelCount:1}}).then(function(stream){try{stream.getTracks().forEach(function(t){t.stop()})}catch(e){}self.voiceAllowed=true;if(self.voiceEngine==='speech')self.voiceError='';done();self.loadVosk()},function(){self.voiceAllowed=false;self.voiceError='Permiso no concedido. Autoriza el micrófono para esta web en los ajustes del navegador.';done()});
   },
   voiceTurn:function(){return !!(this.ui&&this.ui.k==='turn'||this.ui&&this.ui.k==='opts')},
+  sendVoice:function(alts,final){var id=++this.voiceSeq;this.pendingVoiceSeq=id;this.send({t:'voice',id:id,alts:alts,final:!!final});var st=$('cVoiceStatus');if(st)st.textContent='📡 Enviando transcripción a la tele… '+String(alts[0]||'').slice(0,70);clearTimeout(this.voiceAckTimer);this.voiceAckTimer=setTimeout(function(){if(Ctrl.pendingVoiceSeq===id){var el=$('cVoiceStatus');if(el)el.textContent='⚠ La tele no confirma la transcripción. Comprueba que el mando sigue conectado.'}},2500)},
   startVoice:function(){
     if(!this.voiceTurn()||this.voiceStarting)return;
     if(this.voiceEngine==='vosk'){this.voskRequest=true;this.startVosk();return}
@@ -4737,7 +4738,7 @@ var Ctrl={
       self.voskStream=stream;self.voskContext=new (window.AudioContext||window.webkitAudioContext)();
       return self.voskContext.resume().then(function(){
         var rate=self.voskContext.sampleRate;self.voskRecognizer=new self.voskModel.KaldiRecognizer(rate);
-        function heard(text,final){text=String(text||'').trim();if(!text||!Ctrl.joined||!Ctrl.voiceTurn())return;var stamp=text.toLowerCase()+':'+(final?'f':'i');if(stamp===Ctrl.lastVoskText)return;Ctrl.lastVoskText=stamp;Ctrl.send({t:'voice',alts:[text],final:!!final});var el=$('cVoiceStatus');if(el)el.textContent='🎤 '+text}
+        function heard(text,final){text=String(text||'').trim();if(!text||!Ctrl.joined||!Ctrl.voiceTurn())return;var stamp=text.toLowerCase()+':'+(final?'f':'i');if(stamp===Ctrl.lastVoskText)return;Ctrl.lastVoskText=stamp;Ctrl.sendVoice([text],!!final)}
         self.voskRecognizer.on('partialresult',function(m){heard(m&&m.result&&m.result.partial,false)});
         self.voskRecognizer.on('result',function(m){heard(m&&m.result&&m.result.text,true)});
         self.voskRecognizer.on('error',function(){self.voiceError='La voz local se interrumpió. Pulsa ACTIVAR MICRÓFONO para reintentar.';var el=$('cVoiceStatus');if(el)el.textContent=self.voiceError;self.voiceStarting=false});
@@ -4798,6 +4799,7 @@ var Ctrl={
     if(m.t==='welcome'){this.joined=true;$('ctrlName').textContent=m.name;$('ctrlTop').style.borderBottom='3px solid '+m.color;if(!this.ui)this.render({k:'wait',emoji:'✅',title:'¡Conectado!',sub:'Esperando a que empiece la partida'});return}
     if(m.t==='full'){this.joined=false;this.msg('🚫','Partida completa','La partida ya está en marcha o no caben más jugadores.',false);return}
     if(m.t==='ping'){this.send({t:'pong',ts:m.ts});return}
+    if(m.t==='voice_ack'){if(m.id!==this.pendingVoiceSeq)return;clearTimeout(this.voiceAckTimer);var heard=String(m.text||'').slice(0,70),status=m.active?'✅ La tele recibió: ':'✅ La tele recibió la voz, pero ahora no está escuchando turno: ';var el=$('cVoiceStatus');if(el)el.textContent=status+heard;return}
     if(m.t==='score'){$('ctrlScore').textContent=m.s;return}
     if(m.t==='ui')this.render(m);
   },
