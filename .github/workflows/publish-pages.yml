@@ -55,7 +55,12 @@ jobs:
           unzip -q /tmp/vosk-model-small-es-0.42.zip -d /tmp/vosk-es
           model_dir="$(find /tmp/vosk-es -mindepth 1 -maxdepth 1 -type d | head -n 1)"
           test -n "$model_dir"
+          test -s "$model_dir/am/final.mdl"
+          test -s "$model_dir/conf/mfcc.conf"
+          test -s "$model_dir/graph/words.txt"
           tar -czf site/assets/vosk-model-small-es-0.42.tar.gz -C "$model_dir" .
+          printf '%s\n' 'Vosk Spanish small model vosk-model-small-es-0.42' 'Upstream: https://alphacephei.com/vosk/models' 'License: Apache-2.0' > site/assets/vosk-model-attribution.txt
+          curl --fail --location --retry 3 --output site/assets/vosk-model-apache-2.0.txt https://www.apache.org/licenses/LICENSE-2.0.txt
       - name: Aplicar corrección de ruta y reconocimiento móvil
         run: cp index.html site/index.html
       - name: Subir sitio estático
